@@ -40,7 +40,6 @@ if uploaded_file_1 and uploaded_file_2:
         if land_cover_1.shape != land_cover_2.shape:
             st.error('❌ Error: Uploaded TIFF files do not match in shape or resolution.')
         else:
-            # Handle nodata
             if nodata1 is None:
                 nodata1 = 0
             if nodata2 is None:
@@ -48,28 +47,34 @@ if uploaded_file_1 and uploaded_file_2:
 
             valid_mask = (land_cover_1 != nodata1) & (land_cover_2 != nodata2)
 
-            # Mask invalid pixels
+            # Apply mask
             land_cover_1_valid = np.where(valid_mask, land_cover_1, np.nan)
             land_cover_2_valid = np.where(valid_mask, land_cover_2, np.nan)
 
-            # Encode transitions
+            # Encode transitions (e.g., 1 ➔ 3 becomes 103)
             transition_map = land_cover_1_valid * 100 + land_cover_2_valid
             transition_map = np.where(np.isnan(transition_map), np.nan, transition_map)
 
-            # Unique transitions
-            transitions = np.unique(transition_map[~np.isnan(transition_map)]).astype(int)
+            # Find unique transitions
+            transitions_unique = np.unique(transition_map[~np.isnan(transition_map)]).astype(int)
+            st.success(f'✅ Unique transitions detected: {len(transitions_unique)}')
 
-            st.success(f'✅ Unique transitions detected: {len(transitions)}')
+            # Create mapping from transition code ➔ sequential number
+            transition_code_to_index = {code: idx for idx, code in enumerate(transitions_unique)}
+            index_to_transition_code = {idx: code for idx, code in enumerate(transitions_unique)}
+
+            # Map transition raster for plotting
+            transition_mapped = np.copy(transition_map)
+            for code, idx in transition_code_to_index.items():
+                transition_mapped[transition_map == code] = idx
 
             # --- Visualization ---
             st.subheader('🗺️ Change Transition Map')
 
-            cmap = cm.get_cmap('nipy_spectral', len(transitions))
-            boundaries = np.arange(min(transitions) - 0.5, max(transitions) + 1.5, 1)
-            norm = mcolors.BoundaryNorm(boundaries, cmap.N)
+            cmap = cm.get_cmap('nipy_spectral', len(transitions_unique))
 
             fig, ax = plt.subplots(figsize=(12, 8))
-            img = ax.imshow(transition_map, cmap=cmap, norm=norm, interpolation='nearest')
+            img = ax.imshow(transition_mapped, cmap=cmap, interpolation='nearest')
 
             ax.set_title('Transition Map (From ➔ To)', fontsize=16)
             ax.set_xlabel('Column Index', fontsize=12)
@@ -85,13 +90,13 @@ if uploaded_file_1 and uploaded_file_2:
                         ha='center', va='center',
                         arrowprops=dict(facecolor='black', width=5, headwidth=15))
 
-            # Custom Legend
-            labels = [f"{str(val)[:-2]} ➔ {str(val)[-2:]}" for val in transitions]
-            colors = [cmap(i / len(transitions)) for i in range(len(transitions))]
-            patches = [plt.plot([], [], marker="s", ms=10, ls="", mec=None, color=colors[i],
+            # Create legend
+            labels = [f"{str(code)[:-2]} ➔ {str(code)[-2:]}" for code in transitions_unique]
+            colors = [cmap(i / len(transitions_unique)) for i in range(len(transitions_unique))]
+            patches = [plt.plot([],[], marker="s", ms=10, ls="", mec=None, color=colors[i],
                                 label="{:}".format(labels[i]))[0] for i in range(len(labels))]
-            ax.legend(handles=patches, bbox_to_anchor=(1.05, 1), loc='upper left',
-                      borderaxespad=0., title="Transitions")
+
+            ax.legend(handles=patches, bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0., title="Transitions")
             plt.tight_layout()
 
             st.pyplot(fig)
@@ -119,7 +124,7 @@ if uploaded_file_1 and uploaded_file_2:
             # --- Download options ---
             st.subheader('📥 Download Results')
 
-            # Prepare raster for download
+            # Prepare raster for download (original codes)
             nodata_value = -9999
             transition_map_final = np.where(np.isnan(transition_map), nodata_value, transition_map)
 
@@ -142,7 +147,6 @@ if uploaded_file_1 and uploaded_file_2:
                 mime='image/tiff'
             )
 
-            # Download table as CSV
             csv = change_summary.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="Download Change Summary Table (.csv)",
