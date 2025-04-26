@@ -2,8 +2,7 @@ import streamlit as st
 import rasterio
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-import matplotlib.cm as cm
+import matplotlib.patches as mpatches
 import pandas as pd
 import io
 from pyproj import Transformer
@@ -17,10 +16,22 @@ This app detects changes between two Land Use Land Cover (LULC) raster files (.t
 **Features:**
 - 📂 Upload raster files for two different years
 - 🎯 Analyze all transition classes
-- 🗺️ Visualize transition map with latitude-longitude grids, fancy north arrow, scale bar below the legend
+- 🗺️ Visualize transition map with Dynamic World colors, 2-decimal lat/lon grids, north arrow, bottom legends, and proper scale bar
 - 📋 View and download change summary table
 - 📥 Download transition raster
 """)
+
+# Dynamic World Class Colors
+class_color_mapping = {
+    0: '#419bdf', # Water
+    1: '#397d49', # Trees
+    2: '#88b053', # Grass
+    3: '#7a87c6', # Flooded Vegetation
+    4: '#e49635', # Crops
+    5: '#dfc35a', # Shrub and Scrub
+    6: '#c4281b', # Built Area
+    7: '#a59b8f'  # Bare Ground
+}
 
 # Upload TIFFs
 uploaded_file_1 = st.file_uploader("Upload TIFF file for Year 1", type=["tif", "tiff"])
@@ -71,9 +82,17 @@ if uploaded_file_1 and uploaded_file_2:
             # --- Visualization ---
             st.subheader('🗺️ Change Transition Map')
 
-            cmap = cm.get_cmap('nipy_spectral', len(transitions_unique))
-
             fig, ax = plt.subplots(figsize=(14, 10))
+
+            # Create a custom colormap based on transitions
+            colors = []
+            for code in transitions_unique:
+                from_class = int(str(code)[:-2])
+                to_class = int(str(code)[-2:])
+                color = class_color_mapping.get(to_class, '#d3d3d3') # fallback light grey
+                colors.append(color)
+
+            cmap = plt.matplotlib.colors.ListedColormap(colors)
 
             img = ax.imshow(transition_mapped, cmap=cmap, interpolation='nearest')
 
@@ -89,11 +108,12 @@ if uploaded_file_1 and uploaded_file_2:
             transformer = Transformer.from_crs(crs1, "EPSG:4326", always_xy=True)
             x_deg, y_deg = transformer.transform(xs, ys)
 
+            # Set ticks (formatted to 2 decimal places)
             ax.set_xticks(np.linspace(0, ncols-1, num=6))
-            ax.set_xticklabels(["{:.4f}".format(val) for val in np.linspace(np.min(x_deg), np.max(x_deg), num=6)])
+            ax.set_xticklabels(["{:.2f}".format(val) for val in np.linspace(np.min(x_deg), np.max(x_deg), num=6)])
 
             ax.set_yticks(np.linspace(0, nrows-1, num=6))
-            ax.set_yticklabels(["{:.4f}".format(val) for val in np.linspace(np.max(y_deg), np.min(y_deg), num=6)])
+            ax.set_yticklabels(["{:.2f}".format(val) for val in np.linspace(np.max(y_deg), np.min(y_deg), num=6)])
 
             ax.set_xlabel('Longitude (°)', fontsize=12)
             ax.set_ylabel('Latitude (°)', fontsize=12)
@@ -107,19 +127,18 @@ if uploaded_file_1 and uploaded_file_2:
             ax.annotate('↑', xy=(0.97, 0.94), xycoords='axes fraction',
                         fontsize=20, ha='center')
 
-            # --- Create bottom legend ---
-            labels = [f"{str(code)[:-2]} ➔ {str(code)[-2:]}" for code in transitions_unique]
-            colors = [cmap(i / len(transitions_unique)) for i in range(len(transitions_unique))]
-            patches = [plt.plot([], [], marker="s", ms=10, ls="", mec=None, color=colors[i],
-                                label="{:}".format(labels[i]))[0] for i in range(len(labels))]
+            # --- Bottom Legend ---
+            patches = []
+            for code, color in zip(transitions_unique, colors):
+                label = f"{str(code)[:-2]} ➔ {str(code)[-2:]}"
+                patches.append(mpatches.Patch(color=color, label=label))
 
             leg = ax.legend(handles=patches, loc='lower center', bbox_to_anchor=(0.5, -0.55),
                             fancybox=True, shadow=True, ncol=5, title="Transitions")
 
-            # --- Add Scale Bar below Legend ---
-            fig.subplots_adjust(bottom=0.35)  # More space at bottom
-
-            scalebar_ax = fig.add_axes([0.4, 0.08, 0.2, 0.02])
+            # --- Scale Bar below legend ---
+            fig.subplots_adjust(bottom=0.4)  # Give extra space
+            scalebar_ax = fig.add_axes([0.4, 0.05, 0.2, 0.02])
             scalebar_ax.axis('off')
 
             scalebar_ax.plot([0, 1], [0.5, 0.5], color='black', lw=6)
