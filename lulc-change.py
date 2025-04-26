@@ -16,7 +16,7 @@ This app detects changes between two Land Use Land Cover (LULC) raster files (.t
 **Features:**
 - 📂 Upload raster files for two different years
 - 🎯 Analyze all transition classes
-- 🗺️ Visualize transition map with Dynamic World class names in the legend (both FROM ➔ TO)
+- 🗺️ Visualize transition map with Dynamic World class names (both FROM ➔ TO)
 - 📋 View and download change summary table
 - 📥 Download transition raster
 """)
@@ -93,8 +93,6 @@ if uploaded_file_1 and uploaded_file_2:
             # --- Visualization ---
             st.subheader('🗺️ Change Transition Map')
 
-            fig, ax = plt.subplots(figsize=(14, 10))
-
             # Create a custom colormap and labels
             colors = []
             labels = []
@@ -116,6 +114,12 @@ if uploaded_file_1 and uploaded_file_2:
                 labels.append(f"{from_label} ➔ {to_label}")
 
             cmap = plt.matplotlib.colors.ListedColormap(colors)
+
+            # Create figure with two axes: map and legend
+            fig = plt.figure(figsize=(14, 14))
+            gs = fig.add_gridspec(2, 1, height_ratios=[4, 1])
+
+            ax = fig.add_subplot(gs[0, 0])  # Top for map
 
             img = ax.imshow(transition_mapped, cmap=cmap, interpolation='nearest')
 
@@ -149,11 +153,12 @@ if uploaded_file_1 and uploaded_file_2:
             ax.annotate('↑', xy=(0.97, 0.94), xycoords='axes fraction',
                         fontsize=20, ha='center')
 
-            # --- Bottom Legend ---
-            patches = [mpatches.Patch(color=color, label=label) for color, label in zip(colors, labels)]
+            # --- Create Legend separately ---
+            ax_leg = fig.add_subplot(gs[1, 0])  # Bottom for legend
+            ax_leg.axis('off')
 
-            leg = ax.legend(handles=patches, loc='lower center', bbox_to_anchor=(0.5, -0.55),
-                            fancybox=True, shadow=True, ncol=2, title="Transitions")
+            patches = [mpatches.Patch(color=color, label=label) for color, label in zip(colors, labels)]
+            ax_leg.legend(handles=patches, loc='center', fancybox=True, shadow=True, ncol=4, title="Transitions")
 
             plt.tight_layout()
 
@@ -221,4 +226,4 @@ else:
 
 # Footer
 st.markdown("---")
-st.caption("Developed by Sachchidanand Singh | Powered by Streamlit 🚀")
+st.caption("Developed by [Your Name] | Powered by Streamlit 🚀")
