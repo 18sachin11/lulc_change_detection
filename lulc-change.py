@@ -6,6 +6,7 @@ import matplotlib.patches as mpatches
 import pandas as pd
 import io
 from pyproj import Transformer
+import matplotlib.cm as cm
 
 # App title
 st.title('🌎 Land Use Land Cover (LULC) Change Detection App')
@@ -17,7 +18,7 @@ This app detects changes between two Land Use Land Cover (LULC) raster files (.t
 - 📂 Upload raster files for two different years
 - 🗓️ Specify custom years for each map
 - 🎯 Analyze and visualize land cover for each year
-- 🗺️ Visualize transition map with Dynamic World classes and unique transition legends
+- 🗺️ Visualize transition map with unique transition colors
 - 📋 View and download change summary table
 - 📥 Download transition raster
 """)
@@ -35,17 +36,17 @@ class_label_mapping = {
 }
 
 class_color_mapping = {
-    0: '#419bdf',
-    1: '#397d49',
-    2: '#88b053',
-    3: '#7a87c6',
-    4: '#e49635',
-    5: '#dfc35a',
-    6: '#c4281b',
-    7: '#a59b8f'
+    0: '#419bdf',  # Water
+    1: '#397d49',  # Trees
+    2: '#88b053',  # Grass
+    3: '#7a87c6',  # Flooded Vegetation
+    4: '#e49635',  # Crops
+    5: '#dfc35a',  # Shrub and Scrub
+    6: '#c4281b',  # Built Area
+    7: '#a59b8f'   # Bare Ground
 }
 
-# User inputs for years
+# Ask user for years
 st.subheader('🗓️ Specify Years for Uploaded Maps')
 
 year1 = st.text_input("Enter the year for the first uploaded TIFF (e.g., 2015):", value="Year 1")
@@ -55,7 +56,7 @@ year2 = st.text_input("Enter the year for the second uploaded TIFF (e.g., 2020):
 uploaded_file_1 = st.file_uploader(f"Upload TIFF file for {year1}", type=["tif", "tiff"])
 uploaded_file_2 = st.file_uploader(f"Upload TIFF file for {year2}", type=["tif", "tiff"])
 
-# Define plot function
+# Function to plot map
 def plot_map(image_array, title, transform, crs, is_transition=False, transition_info=None):
     nrows, ncols = image_array.shape
     cols, rows = np.meshgrid(np.arange(ncols), np.arange(nrows))
@@ -104,12 +105,13 @@ def plot_map(image_array, title, transform, crs, is_transition=False, transition
     ax_leg = fig.add_subplot(gs[1, 0])
     ax_leg.axis('off')
     patches = [mpatches.Patch(color=color, label=label) for color, label in zip(colors, labels)]
-    ax_leg.legend(handles=patches, loc='center', fancybox=True, shadow=True, ncol=4, title="Classes" if not is_transition else "Transitions")
+    ax_leg.legend(handles=patches, loc='center', fancybox=True, shadow=True, ncol=3,
+                  title="Classes" if not is_transition else "Transitions")
 
     plt.tight_layout()
     st.pyplot(fig)
 
-# After file upload
+# Main processing
 if uploaded_file_1 and uploaded_file_2:
     try:
         with rasterio.open(uploaded_file_1) as src1:
@@ -129,7 +131,6 @@ if uploaded_file_1 and uploaded_file_2:
         if land_cover_1.shape != land_cover_2.shape:
             st.error('❌ Error: Uploaded TIFF files do not match in shape or resolution.')
         else:
-            # Valid data
             if nodata1 is None:
                 nodata1 = 0
             if nodata2 is None:
@@ -140,27 +141,29 @@ if uploaded_file_1 and uploaded_file_2:
             land_cover_1_valid = np.where(valid_mask, land_cover_1, np.nan)
             land_cover_2_valid = np.where(valid_mask, land_cover_2, np.nan)
 
-            # Transition Map
             transition_map = land_cover_1_valid * 100 + land_cover_2_valid
             transition_map = np.where(np.isnan(transition_map), np.nan, transition_map)
 
-            # --- Plot Year 1 Map
+            # Plot Year 1
             st.subheader(f'🗺️ LULC Map for {year1}')
             plot_map(land_cover_1_valid, f'LULC Map for {year1}', transform1, crs1)
 
-            # --- Plot Year 2 Map
+            # Plot Year 2
             st.subheader(f'🗺️ LULC Map for {year2}')
             plot_map(land_cover_2_valid, f'LULC Map for {year2}', transform2, crs2)
 
-            # --- Plot Transition Map
+            # Transition Map
             transitions_unique = np.unique(transition_map[~np.isnan(transition_map)]).astype(int)
             transition_code_to_index = {code: idx for idx, code in enumerate(transitions_unique)}
             transition_mapped = np.copy(transition_map)
             for code, idx in transition_code_to_index.items():
                 transition_mapped[transition_map == code] = idx
 
-            transition_colors = []
+            # Assign unique new colors
+            cmap_transitions = cm.get_cmap('tab20', len(transitions_unique))
+            transition_colors = [cmap_transitions(i) for i in range(len(transitions_unique))]
             transition_labels = []
+
             for code in transitions_unique:
                 code_str = str(code)
                 if len(code_str) <= 2:
@@ -169,8 +172,6 @@ if uploaded_file_1 and uploaded_file_2:
                 else:
                     from_class = int(code_str[:-2])
                     to_class = int(code_str[-2:])
-                color = class_color_mapping.get(to_class, '#d3d3d3')
-                transition_colors.append(color)
                 from_label = class_label_mapping.get(from_class, 'Unknown')
                 to_label = class_label_mapping.get(to_class, 'Unknown')
                 transition_labels.append(f"{from_label} ➔ {to_label}")
@@ -184,7 +185,7 @@ if uploaded_file_1 and uploaded_file_2:
             plot_map(transition_map, f'Transition Map ({year1} ➔ {year2})', transform1, crs1,
                      is_transition=True, transition_info=transition_info)
 
-            # --- Change Summary Table
+            # Change Summary
             st.subheader('📋 Change Summary Table')
 
             land_cover_1_flat = land_cover_1_valid.flatten()
@@ -203,7 +204,7 @@ if uploaded_file_1 and uploaded_file_2:
 
             st.dataframe(change_summary)
 
-            # --- Download Transition Raster and Table
+            # Download
             st.subheader('📥 Download Results')
 
             nodata_value = -9999
