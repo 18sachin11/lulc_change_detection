@@ -94,6 +94,36 @@ if uploaded_file_1 is not None and uploaded_file_2 is not None:
 
 else:
     st.info('Please upload two TIFF files to begin the analysis.')
+import pandas as pd
+
+# === Calculate change table ===
+
+# Flatten the arrays
+land_cover_1_flat = land_cover_1.flatten()
+land_cover_2_flat = land_cover_2.flatten()
+
+# Create a DataFrame of changes
+change_data = pd.DataFrame({
+    'From': land_cover_1_flat,
+    'To': land_cover_2_flat
+})
+
+# Only keep where change occurred
+change_data = change_data[change_data['From'] != change_data['To']]
+
+# Group and count
+change_summary = change_data.groupby(['From', 'To']).size().reset_index(name='Pixel Count')
+
+# Display the change table
+st.subheader('📋 Change Summary Table')
+st.dataframe(change_summary)
+csv = change_summary.to_csv(index=False).encode('utf-8')
+st.download_button(
+    label="Download Change Table as CSV",
+    data=csv,
+    file_name='change_summary.csv',
+    mime='text/csv'
+)
 
 # Footer
 st.markdown("---")
