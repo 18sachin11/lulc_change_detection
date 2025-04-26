@@ -12,10 +12,10 @@ st.title('🌎 Land Use Land Cover (LULC) Change Detection App')
 st.markdown("""
 This app detects changes between two Land Use Land Cover (LULC) raster files (.tif format).
 - 📂 Upload raster files for two different years
-- 🎯 Select specific classes to analyze
-- 🗺️ Visualize the changes
+- 🎯 Analyze all transition classes
+- 🗺️ Visualize the transition map with legend, grid, and north arrow
 - 📋 See and download the change summary table
-- 📥 Download change detection raster
+- 📥 Download transition raster
 """)
 
 # Upload TIFFs
@@ -35,36 +35,49 @@ if uploaded_file_1 and uploaded_file_2:
         if land_cover_1.shape != land_cover_2.shape:
             st.error('❌ Error: Uploaded TIFF files do not match in shape or resolution.')
         else:
-            # List unique classes
-            unique_classes = np.unique(np.concatenate((land_cover_1.flatten(), land_cover_2.flatten())))
-            selected_classes = st.multiselect(
-                "Select classes to analyze (optional):", 
-                options=list(unique_classes),
-                default=list(unique_classes)
-            )
+            # Find unique classes
+            unique_classes_year1 = np.unique(land_cover_1)
+            unique_classes_year2 = np.unique(land_cover_2)
+            unique_classes = np.unique(np.concatenate((unique_classes_year1, unique_classes_year2)))
 
-            # Change Detection
-            change_map = np.where(land_cover_1 != land_cover_2, land_cover_2, 0)
+            st.write('Unique Classes Detected:', unique_classes)
 
-            # Filter selected classes
-            if selected_classes:
-                mask_selected = np.isin(change_map, selected_classes)
-                change_map_filtered = np.where(mask_selected, change_map, 0)
-            else:
-                change_map_filtered = change_map
+            # Encode transitions
+            transition_map = land_cover_1 * 100 + land_cover_2
+
+            # Get all unique transitions
+            transitions = np.unique(transition_map)
 
             # --- Visualization ---
-            st.subheader('🗺️ Change Detection Map')
+            st.subheader('🗺️ Change Transition Map')
 
-            cmap = plt.cm.get_cmap('tab20', len(unique_classes))
-            norm = mcolors.BoundaryNorm(boundaries=np.arange(-0.5, len(unique_classes)+0.5, 1), ncolors=len(unique_classes))
+            fig, ax = plt.subplots(figsize=(12, 8))
+            cmap = plt.cm.get_cmap('tab20', len(transitions))
+            norm = mcolors.BoundaryNorm(boundaries=np.arange(transitions.min()-0.5, transitions.max()+1.5, 1), ncolors=len(transitions))
 
-            fig, ax = plt.subplots(figsize=(10, 6))
-            img = ax.imshow(change_map_filtered, cmap=cmap, norm=norm)
-            cbar = plt.colorbar(img, ax=ax, ticks=np.arange(len(unique_classes)))
-            cbar.ax.set_yticklabels([str(cls) for cls in unique_classes])
-            ax.set_title('Detected Changes')
-            ax.axis('off')
+            img = ax.imshow(transition_map, cmap=cmap, interpolation='nearest')
+            ax.set_title('Transition Map (From ➔ To)', fontsize=16)
+            ax.set_xlabel('Column Index', fontsize=12)
+            ax.set_ylabel('Row Index', fontsize=12)
+
+            # Add grids
+            ax.grid(which='both', color='grey', linestyle='--', linewidth=0.5)
+            ax.minorticks_on()
+
+            # Add North Arrow
+            ax.annotate('N', xy=(0.05, 0.95), xytext=(0.05, 0.95),
+                        textcoords='axes fraction', fontsize=16,
+                        ha='center', va='center',
+                        arrowprops=dict(facecolor='black', width=5, headwidth=15))
+
+            # Add custom legend
+            labels = [f"{str(val)[:1]} ➔ {str(val)[-1:]}" for val in transitions]
+            colors = [cmap(i/len(transitions)) for i in range(len(transitions))]
+            patches = [plt.plot([],[], marker="s", ms=10, ls="", mec=None, color=colors[i], 
+                                label="{:}".format(labels[i]) )[0]  for i in range(len(labels))]
+            leg = ax.legend(handles=patches, bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0., title="Transitions")
+            plt.tight_layout()
+
             st.pyplot(fig)
 
             # --- Change Summary Table ---
@@ -80,9 +93,6 @@ if uploaded_file_1 and uploaded_file_2:
                 'To': land_cover_2_flat
             })
 
-            # Filter only changes
-            change_data = change_data[change_data['From'] != change_data['To']]
-
             # Group and count
             change_summary = change_data.groupby(['From', 'To']).size().reset_index(name='Pixel Count')
 
@@ -92,22 +102,22 @@ if uploaded_file_1 and uploaded_file_2:
             # --- Download options ---
             st.subheader('📥 Download Results')
 
-            # Download change raster
+            # Download transition raster
             buffer = io.BytesIO()
             with rasterio.open(
                 buffer, 'w', driver='GTiff',
-                height=change_map_filtered.shape[0],
-                width=change_map_filtered.shape[1],
-                count=1, dtype=change_map_filtered.dtype,
+                height=transition_map.shape[0],
+                width=transition_map.shape[1],
+                count=1, dtype=transition_map.dtype,
                 crs=profile1['crs'], transform=profile1['transform']
             ) as dst:
-                dst.write(change_map_filtered, 1)
+                dst.write(transition_map, 1)
             buffer.seek(0)
 
             st.download_button(
-                label="Download Change Detection Raster (.tif)",
+                label="Download Transition Raster (.tif)",
                 data=buffer,
-                file_name='change_detection.tif',
+                file_name='transition_map.tif',
                 mime='image/tiff'
             )
 
