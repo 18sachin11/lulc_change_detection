@@ -15,7 +15,8 @@ This app detects changes between two Land Use Land Cover (LULC) raster files (.t
 
 **Features:**
 - 📂 Upload raster files for two different years
-- 🎯 Analyze and visualize land cover for Year 1, Year 2
+- 🗓️ Specify custom years for each map
+- 🎯 Analyze and visualize land cover for each year
 - 🗺️ Visualize transition map with Dynamic World class names (FROM ➔ TO)
 - 📋 View and download change summary table
 - 📥 Download transition raster
@@ -34,19 +35,25 @@ class_label_mapping = {
 }
 
 class_color_mapping = {
-    0: '#419bdf', # Water
-    1: '#397d49', # Trees
-    2: '#88b053', # Grass
-    3: '#7a87c6', # Flooded Vegetation
-    4: '#e49635', # Crops
-    5: '#dfc35a', # Shrub and Scrub
-    6: '#c4281b', # Built Area
-    7: '#a59b8f'  # Bare Ground
+    0: '#419bdf',
+    1: '#397d49',
+    2: '#88b053',
+    3: '#7a87c6',
+    4: '#e49635',
+    5: '#dfc35a',
+    6: '#c4281b',
+    7: '#a59b8f'
 }
 
+# Get years input from user
+st.subheader('🗓️ Specify Years for Uploaded Maps')
+
+year1 = st.text_input("Enter the year for the first uploaded TIFF (e.g., 2015):", value="Year 1")
+year2 = st.text_input("Enter the year for the second uploaded TIFF (e.g., 2020):", value="Year 2")
+
 # Upload TIFFs
-uploaded_file_1 = st.file_uploader("Upload TIFF file for Year 1", type=["tif", "tiff"])
-uploaded_file_2 = st.file_uploader("Upload TIFF file for Year 2", type=["tif", "tiff"])
+uploaded_file_1 = st.file_uploader("Upload TIFF file for " + year1, type=["tif", "tiff"])
+uploaded_file_2 = st.file_uploader("Upload TIFF file for " + year2, type=["tif", "tiff"])
 
 # Define function to plot LULC or Transition map
 def plot_map(image_array, title, transform, crs, class_label_mapping, class_color_mapping, is_transition=False):
@@ -65,14 +72,12 @@ def plot_map(image_array, title, transform, crs, class_label_mapping, class_colo
     ax = fig.add_subplot(gs[0, 0])
 
     if is_transition:
-        # Transition Map
         transitions_unique = np.unique(image_array[~np.isnan(image_array)]).astype(int)
         transition_code_to_index = {code: idx for idx, code in enumerate(transitions_unique)}
         transition_mapped = np.copy(image_array)
         for code, idx in transition_code_to_index.items():
             transition_mapped[image_array == code] = idx
 
-        # Colors and labels
         colors = []
         labels = []
         for code in transitions_unique:
@@ -95,7 +100,6 @@ def plot_map(image_array, title, transform, crs, class_label_mapping, class_colo
         ax.imshow(transition_mapped, cmap=cmap, interpolation='nearest')
 
     else:
-        # LULC Map
         cmap = plt.matplotlib.colors.ListedColormap([class_color_mapping.get(i, '#d3d3d3') for i in range(8)])
         ax.imshow(image_array, cmap=cmap, interpolation='nearest')
         labels = [class_label_mapping[i] for i in range(8)]
@@ -103,7 +107,6 @@ def plot_map(image_array, title, transform, crs, class_label_mapping, class_colo
 
     ax.set_title(title, fontsize=16)
 
-    # Axis settings
     ax.set_xticks(np.linspace(0, ncols-1, num=6))
     ax.set_xticklabels(["{:.2f}".format(val) for val in np.linspace(np.min(x_deg), np.max(x_deg), num=6)])
     ax.set_yticks(np.linspace(0, nrows-1, num=6))
@@ -119,7 +122,7 @@ def plot_map(image_array, title, transform, crs, class_label_mapping, class_colo
     ax.annotate('↑', xy=(0.97, 0.94), xycoords='axes fraction',
                 fontsize=20, ha='center')
 
-    # Legend axis
+    # Legend below
     ax_leg = fig.add_subplot(gs[1, 0])
     ax_leg.axis('off')
     patches = [mpatches.Patch(color=color, label=label) for color, label in zip(colors, labels)]
@@ -148,7 +151,6 @@ if uploaded_file_1 and uploaded_file_2:
         if land_cover_1.shape != land_cover_2.shape:
             st.error('❌ Error: Uploaded TIFF files do not match in shape or resolution.')
         else:
-            # Apply valid mask if needed
             if nodata1 is None:
                 nodata1 = 0
             if nodata2 is None:
@@ -162,19 +164,19 @@ if uploaded_file_1 and uploaded_file_2:
             transition_map = land_cover_1_valid * 100 + land_cover_2_valid
             transition_map = np.where(np.isnan(transition_map), np.nan, transition_map)
 
-            st.subheader('🗺️ Year 1 LULC Map')
-            plot_map(land_cover_1_valid, 'Year 1 LULC Map', transform1, crs1,
+            st.subheader(f'🗺️ LULC Map for {year1}')
+            plot_map(land_cover_1_valid, f'LULC Map for {year1}', transform1, crs1,
                      class_label_mapping, class_color_mapping, is_transition=False)
 
-            st.subheader('🗺️ Year 2 LULC Map')
-            plot_map(land_cover_2_valid, 'Year 2 LULC Map', transform2, crs2,
+            st.subheader(f'🗺️ LULC Map for {year2}')
+            plot_map(land_cover_2_valid, f'LULC Map for {year2}', transform2, crs2,
                      class_label_mapping, class_color_mapping, is_transition=False)
 
             st.subheader('🗺️ Transition Map (From ➔ To)')
-            plot_map(transition_map, 'Transition Map (From ➔ To)', transform1, crs1,
+            plot_map(transition_map, f'Transition Map ({year1} ➔ {year2})', transform1, crs1,
                      class_label_mapping, class_color_mapping, is_transition=True)
 
-            # --- Change Summary Table ---
+            # Change Summary Table
             st.subheader('📋 Change Summary Table')
 
             land_cover_1_flat = land_cover_1_valid.flatten()
@@ -193,7 +195,7 @@ if uploaded_file_1 and uploaded_file_2:
 
             st.dataframe(change_summary)
 
-            # --- Download options ---
+            # Download options
             st.subheader('📥 Download Results')
 
             nodata_value = -9999
@@ -232,7 +234,7 @@ if uploaded_file_1 and uploaded_file_2:
         st.error(f"⚠️ An error occurred: {e}")
 
 else:
-    st.info('Please upload two TIFF files to begin.')
+    st.info('Please upload both TIFF files to continue.')
 
 # Footer
 st.markdown("---")
