@@ -16,7 +16,7 @@ This app detects changes between two Land Use Land Cover (LULC) raster files (.t
 **Features:**
 - 📂 Upload raster files for two different years
 - 🎯 Analyze all transition classes
-- 🗺️ Visualize transition map with legends, grids, and north arrow
+- 🗺️ Visualize transition map with real coordinates, north arrow, scale bar, and bottom legends
 - 📋 View and download change summary table
 - 📥 Download transition raster
 """)
@@ -73,12 +73,33 @@ if uploaded_file_1 and uploaded_file_2:
 
             cmap = cm.get_cmap('nipy_spectral', len(transitions_unique))
 
-            fig, ax = plt.subplots(figsize=(12, 8))
+            fig, ax = plt.subplots(figsize=(14, 10))
+
             img = ax.imshow(transition_mapped, cmap=cmap, interpolation='nearest')
 
             ax.set_title('Transition Map (From ➔ To)', fontsize=16)
-            ax.set_xlabel('Column Index', fontsize=12)
-            ax.set_ylabel('Row Index', fontsize=12)
+
+            # Extract transform parameters
+            transform = profile1['transform']
+            pixel_width = transform[0]
+            pixel_height = transform[4]
+            top_left_x = transform[2]
+            top_left_y = transform[5]
+
+            # Generate real-world coordinates
+            nrows, ncols = transition_mapped.shape
+            x = top_left_x + np.arange(ncols) * pixel_width
+            y = top_left_y + np.arange(nrows) * pixel_height
+
+            # Set X and Y ticks
+            ax.set_xticks(np.linspace(0, ncols-1, num=6))
+            ax.set_xticklabels(["{:.4f}".format(val) for val in np.linspace(x[0], x[-1], num=6)])
+
+            ax.set_yticks(np.linspace(0, nrows-1, num=6))
+            ax.set_yticklabels(["{:.4f}".format(val) for val in np.linspace(y[0], y[-1], num=6)])
+
+            ax.set_xlabel('Longitude (°)', fontsize=12)
+            ax.set_ylabel('Latitude (°)', fontsize=12)
 
             # Add grids
             ax.grid(which='both', color='grey', linestyle='--', linewidth=0.5)
@@ -90,13 +111,21 @@ if uploaded_file_1 and uploaded_file_2:
                         ha='center', va='center',
                         arrowprops=dict(facecolor='black', width=5, headwidth=15))
 
-            # Create legend
+            # Add Scale Bar (assume 0.1 degree length)
+            scalebar_length_deg = 0.1
+            scalebar_pixels = scalebar_length_deg / abs(pixel_width)
+
+            ax.plot([50, 50+scalebar_pixels], [nrows-20, nrows-20], color='black', lw=4)
+            ax.text(50, nrows-10, f"{scalebar_length_deg}°", fontsize=10, ha='left')
+
+            # Create bottom legend
             labels = [f"{str(code)[:-2]} ➔ {str(code)[-2:]}" for code in transitions_unique]
             colors = [cmap(i / len(transitions_unique)) for i in range(len(transitions_unique))]
-            patches = [plt.plot([],[], marker="s", ms=10, ls="", mec=None, color=colors[i],
+            patches = [plt.plot([], [], marker="s", ms=10, ls="", mec=None, color=colors[i],
                                 label="{:}".format(labels[i]))[0] for i in range(len(labels))]
 
-            ax.legend(handles=patches, bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0., title="Transitions")
+            leg = ax.legend(handles=patches, loc='lower center', bbox_to_anchor=(0.5, -0.4),
+                            fancybox=True, shadow=True, ncol=4, title="Transitions")
             plt.tight_layout()
 
             st.pyplot(fig)
@@ -124,7 +153,6 @@ if uploaded_file_1 and uploaded_file_2:
             # --- Download options ---
             st.subheader('📥 Download Results')
 
-            # Prepare raster for download (original codes)
             nodata_value = -9999
             transition_map_final = np.where(np.isnan(transition_map), nodata_value, transition_map)
 
