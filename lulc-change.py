@@ -3,6 +3,7 @@ import rasterio
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import matplotlib.cm as cm
 import pandas as pd
 import io
 
@@ -11,10 +12,12 @@ st.title('🌎 Land Use Land Cover (LULC) Change Detection App')
 
 st.markdown("""
 This app detects changes between two Land Use Land Cover (LULC) raster files (.tif format).
+
+**Features:**
 - 📂 Upload raster files for two different years
 - 🎯 Analyze all transition classes
-- 🗺️ Visualize the transition map with legend, grid, and north arrow
-- 📋 See and download the change summary table
+- 🗺️ Visualize transition map with legends, grids, and north arrow
+- 📋 View and download change summary table
 - 📥 Download transition raster
 """)
 
@@ -28,7 +31,7 @@ if uploaded_file_1 and uploaded_file_2:
             land_cover_1 = src1.read(1)
             profile1 = src1.profile
             nodata1 = src1.nodata
-        
+
         with rasterio.open(uploaded_file_2) as src2:
             land_cover_2 = src2.read(1)
             profile2 = src2.profile
@@ -43,35 +46,31 @@ if uploaded_file_1 and uploaded_file_2:
             if nodata2 is None:
                 nodata2 = 0
 
-            # Create a mask for valid data (both year1 and year2 must be valid)
             valid_mask = (land_cover_1 != nodata1) & (land_cover_2 != nodata2)
 
-            # Apply mask
+            # Mask invalid pixels
             land_cover_1_valid = np.where(valid_mask, land_cover_1, np.nan)
             land_cover_2_valid = np.where(valid_mask, land_cover_2, np.nan)
-
-            # Find unique classes
-            unique_classes_year1 = np.unique(land_cover_1_valid[~np.isnan(land_cover_1_valid)])
-            unique_classes_year2 = np.unique(land_cover_2_valid[~np.isnan(land_cover_2_valid)])
-            unique_classes = np.unique(np.concatenate((unique_classes_year1, unique_classes_year2)))
-
-            st.write('Unique Classes Detected (after removing nulls):', unique_classes)
 
             # Encode transitions
             transition_map = land_cover_1_valid * 100 + land_cover_2_valid
             transition_map = np.where(np.isnan(transition_map), np.nan, transition_map)
 
-            # Get all unique transitions
+            # Unique transitions
             transitions = np.unique(transition_map[~np.isnan(transition_map)]).astype(int)
+
+            st.success(f'✅ Unique transitions detected: {len(transitions)}')
 
             # --- Visualization ---
             st.subheader('🗺️ Change Transition Map')
 
-            fig, ax = plt.subplots(figsize=(12, 8))
-            cmap = plt.cm.get_cmap('tab20', len(transitions))
-            norm = mcolors.BoundaryNorm(boundaries=np.arange(min(transitions)-0.5, max(transitions)+1.5, 1), ncolors=len(transitions))
+            cmap = cm.get_cmap('nipy_spectral', len(transitions))
+            boundaries = np.arange(min(transitions) - 0.5, max(transitions) + 1.5, 1)
+            norm = mcolors.BoundaryNorm(boundaries, cmap.N)
 
-            img = ax.imshow(transition_map, cmap='tab20', interpolation='nearest')
+            fig, ax = plt.subplots(figsize=(12, 8))
+            img = ax.imshow(transition_map, cmap=cmap, norm=norm, interpolation='nearest')
+
             ax.set_title('Transition Map (From ➔ To)', fontsize=16)
             ax.set_xlabel('Column Index', fontsize=12)
             ax.set_ylabel('Row Index', fontsize=12)
@@ -86,12 +85,13 @@ if uploaded_file_1 and uploaded_file_2:
                         ha='center', va='center',
                         arrowprops=dict(facecolor='black', width=5, headwidth=15))
 
-            # Add custom legend
-            labels = [f"{str(val)[:1]} ➔ {str(val)[-1:]}" for val in transitions]
-            colors = [cmap(i/len(transitions)) for i in range(len(transitions))]
-            patches = [plt.plot([],[], marker="s", ms=10, ls="", mec=None, color=colors[i], 
-                                label="{:}".format(labels[i]) )[0]  for i in range(len(labels))]
-            leg = ax.legend(handles=patches, bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0., title="Transitions")
+            # Custom Legend
+            labels = [f"{str(val)[:-2]} ➔ {str(val)[-2:]}" for val in transitions]
+            colors = [cmap(i / len(transitions)) for i in range(len(transitions))]
+            patches = [plt.plot([], [], marker="s", ms=10, ls="", mec=None, color=colors[i],
+                                label="{:}".format(labels[i]))[0] for i in range(len(labels))]
+            ax.legend(handles=patches, bbox_to_anchor=(1.05, 1), loc='upper left',
+                      borderaxespad=0., title="Transitions")
             plt.tight_layout()
 
             st.pyplot(fig)
@@ -103,37 +103,36 @@ if uploaded_file_1 and uploaded_file_2:
             land_cover_1_flat = land_cover_1_valid.flatten()
             land_cover_2_flat = land_cover_2_valid.flatten()
 
-            # Remove NaN
             valid_indices = ~np.isnan(land_cover_1_flat) & ~np.isnan(land_cover_2_flat)
             land_cover_1_flat = land_cover_1_flat[valid_indices]
             land_cover_2_flat = land_cover_2_flat[valid_indices]
 
-            # Create DataFrame
             change_data = pd.DataFrame({
                 'From': land_cover_1_flat.astype(int),
                 'To': land_cover_2_flat.astype(int)
             })
 
-            # Group and count
             change_summary = change_data.groupby(['From', 'To']).size().reset_index(name='Pixel Count')
 
-            # Show table
             st.dataframe(change_summary)
 
             # --- Download options ---
             st.subheader('📥 Download Results')
 
-            # Download transition raster
+            # Prepare raster for download
+            nodata_value = -9999
+            transition_map_final = np.where(np.isnan(transition_map), nodata_value, transition_map)
+
             buffer = io.BytesIO()
             with rasterio.open(
                 buffer, 'w', driver='GTiff',
-                height=transition_map.shape[0],
-                width=transition_map.shape[1],
+                height=transition_map_final.shape[0],
+                width=transition_map_final.shape[1],
                 count=1, dtype='float32',
                 crs=profile1['crs'], transform=profile1['transform'],
-                nodata=np.nan
+                nodata=nodata_value
             ) as dst:
-                dst.write(transition_map.astype('float32'), 1)
+                dst.write(transition_map_final.astype('float32'), 1)
             buffer.seek(0)
 
             st.download_button(
@@ -143,7 +142,7 @@ if uploaded_file_1 and uploaded_file_2:
                 mime='image/tiff'
             )
 
-            # Download change table
+            # Download table as CSV
             csv = change_summary.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="Download Change Summary Table (.csv)",
