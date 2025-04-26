@@ -27,35 +27,51 @@ if uploaded_file_1 and uploaded_file_2:
         with rasterio.open(uploaded_file_1) as src1:
             land_cover_1 = src1.read(1)
             profile1 = src1.profile
+            nodata1 = src1.nodata
         
         with rasterio.open(uploaded_file_2) as src2:
             land_cover_2 = src2.read(1)
             profile2 = src2.profile
+            nodata2 = src2.nodata
 
         if land_cover_1.shape != land_cover_2.shape:
             st.error('❌ Error: Uploaded TIFF files do not match in shape or resolution.')
         else:
+            # Handle nodata
+            if nodata1 is None:
+                nodata1 = 0
+            if nodata2 is None:
+                nodata2 = 0
+
+            # Create a mask for valid data (both year1 and year2 must be valid)
+            valid_mask = (land_cover_1 != nodata1) & (land_cover_2 != nodata2)
+
+            # Apply mask
+            land_cover_1_valid = np.where(valid_mask, land_cover_1, np.nan)
+            land_cover_2_valid = np.where(valid_mask, land_cover_2, np.nan)
+
             # Find unique classes
-            unique_classes_year1 = np.unique(land_cover_1)
-            unique_classes_year2 = np.unique(land_cover_2)
+            unique_classes_year1 = np.unique(land_cover_1_valid[~np.isnan(land_cover_1_valid)])
+            unique_classes_year2 = np.unique(land_cover_2_valid[~np.isnan(land_cover_2_valid)])
             unique_classes = np.unique(np.concatenate((unique_classes_year1, unique_classes_year2)))
 
-            st.write('Unique Classes Detected:', unique_classes)
+            st.write('Unique Classes Detected (after removing nulls):', unique_classes)
 
             # Encode transitions
-            transition_map = land_cover_1 * 100 + land_cover_2
+            transition_map = land_cover_1_valid * 100 + land_cover_2_valid
+            transition_map = np.where(np.isnan(transition_map), np.nan, transition_map)
 
             # Get all unique transitions
-            transitions = np.unique(transition_map)
+            transitions = np.unique(transition_map[~np.isnan(transition_map)]).astype(int)
 
             # --- Visualization ---
             st.subheader('🗺️ Change Transition Map')
 
             fig, ax = plt.subplots(figsize=(12, 8))
             cmap = plt.cm.get_cmap('tab20', len(transitions))
-            norm = mcolors.BoundaryNorm(boundaries=np.arange(transitions.min()-0.5, transitions.max()+1.5, 1), ncolors=len(transitions))
+            norm = mcolors.BoundaryNorm(boundaries=np.arange(min(transitions)-0.5, max(transitions)+1.5, 1), ncolors=len(transitions))
 
-            img = ax.imshow(transition_map, cmap=cmap, interpolation='nearest')
+            img = ax.imshow(transition_map, cmap='tab20', interpolation='nearest')
             ax.set_title('Transition Map (From ➔ To)', fontsize=16)
             ax.set_xlabel('Column Index', fontsize=12)
             ax.set_ylabel('Row Index', fontsize=12)
@@ -83,14 +99,19 @@ if uploaded_file_1 and uploaded_file_2:
             # --- Change Summary Table ---
             st.subheader('📋 Change Summary Table')
 
-            # Flatten arrays
-            land_cover_1_flat = land_cover_1.flatten()
-            land_cover_2_flat = land_cover_2.flatten()
+            # Flatten valid arrays
+            land_cover_1_flat = land_cover_1_valid.flatten()
+            land_cover_2_flat = land_cover_2_valid.flatten()
+
+            # Remove NaN
+            valid_indices = ~np.isnan(land_cover_1_flat) & ~np.isnan(land_cover_2_flat)
+            land_cover_1_flat = land_cover_1_flat[valid_indices]
+            land_cover_2_flat = land_cover_2_flat[valid_indices]
 
             # Create DataFrame
             change_data = pd.DataFrame({
-                'From': land_cover_1_flat,
-                'To': land_cover_2_flat
+                'From': land_cover_1_flat.astype(int),
+                'To': land_cover_2_flat.astype(int)
             })
 
             # Group and count
@@ -108,10 +129,11 @@ if uploaded_file_1 and uploaded_file_2:
                 buffer, 'w', driver='GTiff',
                 height=transition_map.shape[0],
                 width=transition_map.shape[1],
-                count=1, dtype=transition_map.dtype,
-                crs=profile1['crs'], transform=profile1['transform']
+                count=1, dtype='float32',
+                crs=profile1['crs'], transform=profile1['transform'],
+                nodata=np.nan
             ) as dst:
-                dst.write(transition_map, 1)
+                dst.write(transition_map.astype('float32'), 1)
             buffer.seek(0)
 
             st.download_button(
