@@ -16,12 +16,23 @@ This app detects changes between two Land Use Land Cover (LULC) raster files (.t
 **Features:**
 - 📂 Upload raster files for two different years
 - 🎯 Analyze all transition classes
-- 🗺️ Visualize transition map with Dynamic World colors, 2-decimal lat/lon grids, north arrow, bottom legends, and proper scale bar
+- 🗺️ Visualize transition map with Dynamic World class names in the legend (both FROM ➔ TO)
 - 📋 View and download change summary table
 - 📥 Download transition raster
 """)
 
-# Dynamic World Class Colors
+# Dynamic World Class Labels and Colors
+class_label_mapping = {
+    0: 'Water',
+    1: 'Trees',
+    2: 'Grass',
+    3: 'Flooded Vegetation',
+    4: 'Crops',
+    5: 'Shrub and Scrub',
+    6: 'Built Area',
+    7: 'Bare Ground'
+}
+
 class_color_mapping = {
     0: '#419bdf', # Water
     1: '#397d49', # Trees
@@ -84,8 +95,10 @@ if uploaded_file_1 and uploaded_file_2:
 
             fig, ax = plt.subplots(figsize=(14, 10))
 
-            # Create a custom colormap based on transitions
+            # Create a custom colormap and labels
             colors = []
+            labels = []
+
             for code in transitions_unique:
                 code_str = str(code)
                 if len(code_str) <= 2:
@@ -94,8 +107,13 @@ if uploaded_file_1 and uploaded_file_2:
                 else:
                     from_class = int(code_str[:-2])
                     to_class = int(code_str[-2:])
+
                 color = class_color_mapping.get(to_class, '#d3d3d3') # fallback grey
                 colors.append(color)
+
+                from_label = class_label_mapping.get(from_class, 'Unknown')
+                to_label = class_label_mapping.get(to_class, 'Unknown')
+                labels.append(f"{from_label} ➔ {to_label}")
 
             cmap = plt.matplotlib.colors.ListedColormap(colors)
 
@@ -113,7 +131,6 @@ if uploaded_file_1 and uploaded_file_2:
             transformer = Transformer.from_crs(crs1, "EPSG:4326", always_xy=True)
             x_deg, y_deg = transformer.transform(xs, ys)
 
-            # Set ticks (formatted to 2 decimal places)
             ax.set_xticks(np.linspace(0, ncols-1, num=6))
             ax.set_xticklabels(["{:.2f}".format(val) for val in np.linspace(np.min(x_deg), np.max(x_deg), num=6)])
 
@@ -133,31 +150,10 @@ if uploaded_file_1 and uploaded_file_2:
                         fontsize=20, ha='center')
 
             # --- Bottom Legend ---
-            patches = []
-            for code, color in zip(transitions_unique, colors):
-                code_str = str(code)
-                if len(code_str) <= 2:
-                    from_class = 0
-                    to_class = int(code_str)
-                else:
-                    from_class = int(code_str[:-2])
-                    to_class = int(code_str[-2:])
-                label = f"{from_class} ➔ {to_class}"
-                patches.append(mpatches.Patch(color=color, label=label))
+            patches = [mpatches.Patch(color=color, label=label) for color, label in zip(colors, labels)]
 
             leg = ax.legend(handles=patches, loc='lower center', bbox_to_anchor=(0.5, -0.55),
-                            fancybox=True, shadow=True, ncol=5, title="Transitions")
-
-            # --- Scale Bar below legend ---
-            fig.subplots_adjust(bottom=0.4)  # Give extra space
-            scalebar_ax = fig.add_axes([0.4, 0.05, 0.2, 0.02])
-            scalebar_ax.axis('off')
-
-            scalebar_ax.plot([0, 1], [0.5, 0.5], color='black', lw=6)
-            scalebar_ax.text(0, 0.8, '0°', fontsize=10, va='bottom', ha='center')
-            scalebar_ax.text(1, 0.8, '0.1°', fontsize=10, va='bottom', ha='center')
-            scalebar_ax.set_xlim(0, 1)
-            scalebar_ax.set_ylim(0, 1)
+                            fancybox=True, shadow=True, ncol=2, title="Transitions")
 
             plt.tight_layout()
 
@@ -225,4 +221,4 @@ else:
 
 # Footer
 st.markdown("---")
-st.caption("Developed by Dr Sachchidanand Singh Powered by Streamlit 🚀")
+st.caption("Developed by Sachchidanand Singh | Powered by Streamlit 🚀")
