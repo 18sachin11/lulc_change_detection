@@ -6,6 +6,7 @@ import matplotlib.colors as mcolors
 import matplotlib.cm as cm
 import pandas as pd
 import io
+from pyproj import Transformer
 
 # App title
 st.title('🌎 Land Use Land Cover (LULC) Change Detection App')
@@ -16,7 +17,7 @@ This app detects changes between two Land Use Land Cover (LULC) raster files (.t
 **Features:**
 - 📂 Upload raster files for two different years
 - 🎯 Analyze all transition classes
-- 🗺️ Visualize transition map with real coordinates, north arrow, scale bar, and bottom legends
+- 🗺️ Visualize transition map with real latitude-longitude grids, north arrow, scale bar, and bottom legends
 - 📋 View and download change summary table
 - 📥 Download transition raster
 """)
@@ -30,11 +31,15 @@ if uploaded_file_1 and uploaded_file_2:
         with rasterio.open(uploaded_file_1) as src1:
             land_cover_1 = src1.read(1)
             profile1 = src1.profile
+            crs1 = src1.crs
+            transform1 = src1.transform
             nodata1 = src1.nodata
 
         with rasterio.open(uploaded_file_2) as src2:
             land_cover_2 = src2.read(1)
             profile2 = src2.profile
+            crs2 = src2.crs
+            transform2 = src2.transform
             nodata2 = src2.nodata
 
         if land_cover_1.shape != land_cover_2.shape:
@@ -51,7 +56,7 @@ if uploaded_file_1 and uploaded_file_2:
             land_cover_1_valid = np.where(valid_mask, land_cover_1, np.nan)
             land_cover_2_valid = np.where(valid_mask, land_cover_2, np.nan)
 
-            # Encode transitions (e.g., 1 ➔ 3 becomes 103)
+            # Encode transitions
             transition_map = land_cover_1_valid * 100 + land_cover_2_valid
             transition_map = np.where(np.isnan(transition_map), np.nan, transition_map)
 
@@ -59,11 +64,10 @@ if uploaded_file_1 and uploaded_file_2:
             transitions_unique = np.unique(transition_map[~np.isnan(transition_map)]).astype(int)
             st.success(f'✅ Unique transitions detected: {len(transitions_unique)}')
 
-            # Create mapping from transition code ➔ sequential number
+            # Create mapping for plotting
             transition_code_to_index = {code: idx for idx, code in enumerate(transitions_unique)}
             index_to_transition_code = {idx: code for idx, code in enumerate(transitions_unique)}
 
-            # Map transition raster for plotting
             transition_mapped = np.copy(transition_map)
             for code, idx in transition_code_to_index.items():
                 transition_mapped[transition_map == code] = idx
@@ -79,24 +83,24 @@ if uploaded_file_1 and uploaded_file_2:
 
             ax.set_title('Transition Map (From ➔ To)', fontsize=16)
 
-            # Extract transform parameters
-            transform = profile1['transform']
-            pixel_width = transform[0]
-            pixel_height = transform[4]
-            top_left_x = transform[2]
-            top_left_y = transform[5]
-
-            # Generate real-world coordinates
+            # Extract dimensions
             nrows, ncols = transition_mapped.shape
-            x = top_left_x + np.arange(ncols) * pixel_width
-            y = top_left_y + np.arange(nrows) * pixel_height
 
-            # Set X and Y ticks
+            # Generate pixel center coordinates
+            x_coords = np.arange(ncols) * transform1[0] + transform1[2] + transform1[0]/2
+            y_coords = np.arange(nrows) * transform1[4] + transform1[5] + transform1[4]/2
+
+            # Setup transformer from image CRS to WGS84
+            transformer = Transformer.from_crs(crs1, "EPSG:4326", always_xy=True)
+
+            x_deg, y_deg = transformer.transform(x_coords, y_coords)
+
+            # Set x and y ticks
             ax.set_xticks(np.linspace(0, ncols-1, num=6))
-            ax.set_xticklabels(["{:.4f}".format(val) for val in np.linspace(x[0], x[-1], num=6)])
+            ax.set_xticklabels(["{:.4f}".format(val) for val in np.linspace(min(x_deg), max(x_deg), num=6)])
 
             ax.set_yticks(np.linspace(0, nrows-1, num=6))
-            ax.set_yticklabels(["{:.4f}".format(val) for val in np.linspace(y[0], y[-1], num=6)])
+            ax.set_yticklabels(["{:.4f}".format(val) for val in np.linspace(max(y_deg), min(y_deg), num=6)])
 
             ax.set_xlabel('Longitude (°)', fontsize=12)
             ax.set_ylabel('Latitude (°)', fontsize=12)
@@ -111,9 +115,10 @@ if uploaded_file_1 and uploaded_file_2:
                         ha='center', va='center',
                         arrowprops=dict(facecolor='black', width=5, headwidth=15))
 
-            # Add Scale Bar (assume 0.1 degree length)
+            # Add Scale Bar
             scalebar_length_deg = 0.1
-            scalebar_pixels = scalebar_length_deg / abs(pixel_width)
+            pixel_width_deg = (max(x_deg) - min(x_deg)) / ncols
+            scalebar_pixels = scalebar_length_deg / pixel_width_deg
 
             ax.plot([50, 50+scalebar_pixels], [nrows-20, nrows-20], color='black', lw=4)
             ax.text(50, nrows-10, f"{scalebar_length_deg}°", fontsize=10, ha='left')
@@ -124,8 +129,8 @@ if uploaded_file_1 and uploaded_file_2:
             patches = [plt.plot([], [], marker="s", ms=10, ls="", mec=None, color=colors[i],
                                 label="{:}".format(labels[i]))[0] for i in range(len(labels))]
 
-            leg = ax.legend(handles=patches, loc='lower center', bbox_to_anchor=(0.5, -0.4),
-                            fancybox=True, shadow=True, ncol=4, title="Transitions")
+            leg = ax.legend(handles=patches, loc='lower center', bbox_to_anchor=(0.5, -0.55),
+                            fancybox=True, shadow=True, ncol=5, title="Transitions")
             plt.tight_layout()
 
             st.pyplot(fig)
