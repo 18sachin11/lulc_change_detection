@@ -17,7 +17,7 @@ This app detects changes between two Land Use Land Cover (LULC) raster files (.t
 **Features:**
 - 📂 Upload raster files for two different years
 - 🎯 Analyze all transition classes
-- 🗺️ Visualize transition map with real latitude-longitude grids, north arrow, scale bar, and bottom legends
+- 🗺️ Visualize transition map with latitude-longitude grids, north arrow, scale bar, and bottom legends
 - 📋 View and download change summary table
 - 📥 Download transition raster
 """)
@@ -83,24 +83,23 @@ if uploaded_file_1 and uploaded_file_2:
 
             ax.set_title('Transition Map (From ➔ To)', fontsize=16)
 
-            # Extract dimensions
+            # Generate real-world coordinates
             nrows, ncols = transition_mapped.shape
+            cols, rows = np.meshgrid(np.arange(ncols), np.arange(nrows))
+            xs, ys = rasterio.transform.xy(transform1, rows, cols, offset='center')
+            xs = np.array(xs)
+            ys = np.array(ys)
 
-            # Generate pixel center coordinates
-            x_coords = np.arange(ncols) * transform1[0] + transform1[2] + transform1[0]/2
-            y_coords = np.arange(nrows) * transform1[4] + transform1[5] + transform1[4]/2
-
-            # Setup transformer from image CRS to WGS84
+            # Setup transformer
             transformer = Transformer.from_crs(crs1, "EPSG:4326", always_xy=True)
+            x_deg, y_deg = transformer.transform(xs, ys)
 
-            x_deg, y_deg = transformer.transform(x_coords, y_coords)
-
-            # Set x and y ticks
+            # Set x and y axis ticks
             ax.set_xticks(np.linspace(0, ncols-1, num=6))
-            ax.set_xticklabels(["{:.4f}".format(val) for val in np.linspace(min(x_deg), max(x_deg), num=6)])
+            ax.set_xticklabels(["{:.4f}".format(val) for val in np.linspace(np.min(x_deg), np.max(x_deg), num=6)])
 
             ax.set_yticks(np.linspace(0, nrows-1, num=6))
-            ax.set_yticklabels(["{:.4f}".format(val) for val in np.linspace(max(y_deg), min(y_deg), num=6)])
+            ax.set_yticklabels(["{:.4f}".format(val) for val in np.linspace(np.max(y_deg), np.min(y_deg), num=6)])
 
             ax.set_xlabel('Longitude (°)', fontsize=12)
             ax.set_ylabel('Latitude (°)', fontsize=12)
@@ -117,7 +116,7 @@ if uploaded_file_1 and uploaded_file_2:
 
             # Add Scale Bar
             scalebar_length_deg = 0.1
-            pixel_width_deg = (max(x_deg) - min(x_deg)) / ncols
+            pixel_width_deg = (np.max(x_deg) - np.min(x_deg)) / ncols
             scalebar_pixels = scalebar_length_deg / pixel_width_deg
 
             ax.plot([50, 50+scalebar_pixels], [nrows-20, nrows-20], color='black', lw=4)
