@@ -87,9 +87,14 @@ if uploaded_file_1 and uploaded_file_2:
             # Create a custom colormap based on transitions
             colors = []
             for code in transitions_unique:
-                from_class = int(str(code)[:-2])
-                to_class = int(str(code)[-2:])
-                color = class_color_mapping.get(to_class, '#d3d3d3') # fallback light grey
+                code_str = str(code)
+                if len(code_str) <= 2:
+                    from_class = 0
+                    to_class = int(code_str)
+                else:
+                    from_class = int(code_str[:-2])
+                    to_class = int(code_str[-2:])
+                color = class_color_mapping.get(to_class, '#d3d3d3') # fallback grey
                 colors.append(color)
 
             cmap = plt.matplotlib.colors.ListedColormap(colors)
@@ -130,7 +135,14 @@ if uploaded_file_1 and uploaded_file_2:
             # --- Bottom Legend ---
             patches = []
             for code, color in zip(transitions_unique, colors):
-                label = f"{str(code)[:-2]} ➔ {str(code)[-2:]}"
+                code_str = str(code)
+                if len(code_str) <= 2:
+                    from_class = 0
+                    to_class = int(code_str)
+                else:
+                    from_class = int(code_str[:-2])
+                    to_class = int(code_str[-2:])
+                label = f"{from_class} ➔ {to_class}"
                 patches.append(mpatches.Patch(color=color, label=label))
 
             leg = ax.legend(handles=patches, loc='lower center', bbox_to_anchor=(0.5, -0.55),
@@ -213,4 +225,4 @@ else:
 
 # Footer
 st.markdown("---")
-st.caption("Developed by [Your Name] | Powered by Streamlit 🚀")
+st.caption("Developed by Dr Sachchidanand Singh Powered by Streamlit 🚀")
