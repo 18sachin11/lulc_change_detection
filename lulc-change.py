@@ -11,13 +11,13 @@ from pyproj import Transformer
 st.title('🌎 Land Use Land Cover (LULC) Change Detection App')
 
 st.markdown("""
-This app detects changes between two Dynamic World Land Use Land Cover (LULC) raster files (.tif format).
+This app detects changes between two Land Use Land Cover (LULC) raster files (.tif format).
 
 **Features:**
 - 📂 Upload raster files for two different years
 - 🗓️ Specify custom years for each map
 - 🎯 Analyze and visualize land cover for each year
-- 🗺️ Visualize transition map with Dynamic World class names (FROM ➔ TO)
+- 🗺️ Visualize transition map with Dynamic World classes and unique transition legends
 - 📋 View and download change summary table
 - 📥 Download transition raster
 """)
@@ -45,18 +45,18 @@ class_color_mapping = {
     7: '#a59b8f'
 }
 
-# Get years input from user
+# User inputs for years
 st.subheader('🗓️ Specify Years for Uploaded Maps')
 
 year1 = st.text_input("Enter the year for the first uploaded TIFF (e.g., 2015):", value="Year 1")
 year2 = st.text_input("Enter the year for the second uploaded TIFF (e.g., 2020):", value="Year 2")
 
 # Upload TIFFs
-uploaded_file_1 = st.file_uploader("Upload TIFF file for " + year1, type=["tif", "tiff"])
-uploaded_file_2 = st.file_uploader("Upload TIFF file for " + year2, type=["tif", "tiff"])
+uploaded_file_1 = st.file_uploader(f"Upload TIFF file for {year1}", type=["tif", "tiff"])
+uploaded_file_2 = st.file_uploader(f"Upload TIFF file for {year2}", type=["tif", "tiff"])
 
-# Define function to plot LULC or Transition map
-def plot_map(image_array, title, transform, crs, class_label_mapping, class_color_mapping, is_transition=False):
+# Define plot function
+def plot_map(image_array, title, transform, crs, is_transition=False, transition_info=None):
     nrows, ncols = image_array.shape
     cols, rows = np.meshgrid(np.arange(ncols), np.arange(nrows))
     xs, ys = rasterio.transform.xy(transform, rows, cols, offset='center')
@@ -71,34 +71,12 @@ def plot_map(image_array, title, transform, crs, class_label_mapping, class_colo
 
     ax = fig.add_subplot(gs[0, 0])
 
-    if is_transition:
-        transitions_unique = np.unique(image_array[~np.isnan(image_array)]).astype(int)
-        transition_code_to_index = {code: idx for idx, code in enumerate(transitions_unique)}
-        transition_mapped = np.copy(image_array)
-        for code, idx in transition_code_to_index.items():
-            transition_mapped[image_array == code] = idx
-
-        colors = []
-        labels = []
-        for code in transitions_unique:
-            code_str = str(code)
-            if len(code_str) <= 2:
-                from_class = 0
-                to_class = int(code_str)
-            else:
-                from_class = int(code_str[:-2])
-                to_class = int(code_str[-2:])
-
-            color = class_color_mapping.get(to_class, '#d3d3d3')
-            colors.append(color)
-
-            from_label = class_label_mapping.get(from_class, 'Unknown')
-            to_label = class_label_mapping.get(to_class, 'Unknown')
-            labels.append(f"{from_label} ➔ {to_label}")
-
+    if is_transition and transition_info:
+        transition_mapped = transition_info['mapped_array']
+        colors = transition_info['colors']
+        labels = transition_info['labels']
         cmap = plt.matplotlib.colors.ListedColormap(colors)
         ax.imshow(transition_mapped, cmap=cmap, interpolation='nearest')
-
     else:
         cmap = plt.matplotlib.colors.ListedColormap([class_color_mapping.get(i, '#d3d3d3') for i in range(8)])
         ax.imshow(image_array, cmap=cmap, interpolation='nearest')
@@ -122,16 +100,16 @@ def plot_map(image_array, title, transform, crs, class_label_mapping, class_colo
     ax.annotate('↑', xy=(0.97, 0.94), xycoords='axes fraction',
                 fontsize=20, ha='center')
 
-    # Legend below
+    # Legend
     ax_leg = fig.add_subplot(gs[1, 0])
     ax_leg.axis('off')
     patches = [mpatches.Patch(color=color, label=label) for color, label in zip(colors, labels)]
-    ax_leg.legend(handles=patches, loc='center', fancybox=True, shadow=True, ncol=4, title="Classes")
+    ax_leg.legend(handles=patches, loc='center', fancybox=True, shadow=True, ncol=4, title="Classes" if not is_transition else "Transitions")
 
     plt.tight_layout()
     st.pyplot(fig)
 
-# Process after both uploads
+# After file upload
 if uploaded_file_1 and uploaded_file_2:
     try:
         with rasterio.open(uploaded_file_1) as src1:
@@ -151,6 +129,7 @@ if uploaded_file_1 and uploaded_file_2:
         if land_cover_1.shape != land_cover_2.shape:
             st.error('❌ Error: Uploaded TIFF files do not match in shape or resolution.')
         else:
+            # Valid data
             if nodata1 is None:
                 nodata1 = 0
             if nodata2 is None:
@@ -161,22 +140,51 @@ if uploaded_file_1 and uploaded_file_2:
             land_cover_1_valid = np.where(valid_mask, land_cover_1, np.nan)
             land_cover_2_valid = np.where(valid_mask, land_cover_2, np.nan)
 
+            # Transition Map
             transition_map = land_cover_1_valid * 100 + land_cover_2_valid
             transition_map = np.where(np.isnan(transition_map), np.nan, transition_map)
 
+            # --- Plot Year 1 Map
             st.subheader(f'🗺️ LULC Map for {year1}')
-            plot_map(land_cover_1_valid, f'LULC Map for {year1}', transform1, crs1,
-                     class_label_mapping, class_color_mapping, is_transition=False)
+            plot_map(land_cover_1_valid, f'LULC Map for {year1}', transform1, crs1)
 
+            # --- Plot Year 2 Map
             st.subheader(f'🗺️ LULC Map for {year2}')
-            plot_map(land_cover_2_valid, f'LULC Map for {year2}', transform2, crs2,
-                     class_label_mapping, class_color_mapping, is_transition=False)
+            plot_map(land_cover_2_valid, f'LULC Map for {year2}', transform2, crs2)
 
-            st.subheader('🗺️ Transition Map (From ➔ To)')
+            # --- Plot Transition Map
+            transitions_unique = np.unique(transition_map[~np.isnan(transition_map)]).astype(int)
+            transition_code_to_index = {code: idx for idx, code in enumerate(transitions_unique)}
+            transition_mapped = np.copy(transition_map)
+            for code, idx in transition_code_to_index.items():
+                transition_mapped[transition_map == code] = idx
+
+            transition_colors = []
+            transition_labels = []
+            for code in transitions_unique:
+                code_str = str(code)
+                if len(code_str) <= 2:
+                    from_class = 0
+                    to_class = int(code_str)
+                else:
+                    from_class = int(code_str[:-2])
+                    to_class = int(code_str[-2:])
+                color = class_color_mapping.get(to_class, '#d3d3d3')
+                transition_colors.append(color)
+                from_label = class_label_mapping.get(from_class, 'Unknown')
+                to_label = class_label_mapping.get(to_class, 'Unknown')
+                transition_labels.append(f"{from_label} ➔ {to_label}")
+
+            st.subheader(f'🗺️ Transition Map ({year1} ➔ {year2})')
+            transition_info = {
+                'mapped_array': transition_mapped,
+                'colors': transition_colors,
+                'labels': transition_labels
+            }
             plot_map(transition_map, f'Transition Map ({year1} ➔ {year2})', transform1, crs1,
-                     class_label_mapping, class_color_mapping, is_transition=True)
+                     is_transition=True, transition_info=transition_info)
 
-            # Change Summary Table
+            # --- Change Summary Table
             st.subheader('📋 Change Summary Table')
 
             land_cover_1_flat = land_cover_1_valid.flatten()
@@ -195,7 +203,7 @@ if uploaded_file_1 and uploaded_file_2:
 
             st.dataframe(change_summary)
 
-            # Download options
+            # --- Download Transition Raster and Table
             st.subheader('📥 Download Results')
 
             nodata_value = -9999
@@ -234,8 +242,8 @@ if uploaded_file_1 and uploaded_file_2:
         st.error(f"⚠️ An error occurred: {e}")
 
 else:
-    st.info('Please upload both TIFF files to continue.')
+    st.info('Please upload two TIFF files to continue.')
 
 # Footer
 st.markdown("---")
-st.caption("Developed by Dr Sachchidanand Singh, Scientist, NIH-WHRC Jammu | Powered by Streamlit 🚀")
+st.caption("Developed by Sachchidanand Singh | Powered by Streamlit 🚀")
