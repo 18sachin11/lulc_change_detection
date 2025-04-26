@@ -238,4 +238,4 @@ else:
 
 # Footer
 st.markdown("---")
-st.caption("Developed by [Your Name] | Powered by Streamlit 🚀")
+st.caption("Developed by Dr Sachchidanand Singh, Scientist, NIH-WHRC Jammu | Powered by Streamlit 🚀")
