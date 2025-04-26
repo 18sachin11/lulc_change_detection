@@ -11,7 +11,7 @@ from pyproj import Transformer
 st.title('🌎 Land Use Land Cover (LULC) Change Detection App')
 
 st.markdown("""
-This app detects changes between two Land Use Land Cover (LULC) raster files (.tif format).
+This app detects changes between two Dynamic World Land Use Land Cover (LULC) raster files (.tif format).
 
 **Features:**
 - 📂 Upload raster files for two different years
