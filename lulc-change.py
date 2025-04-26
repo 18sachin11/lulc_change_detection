@@ -15,8 +15,8 @@ This app detects changes between two Land Use Land Cover (LULC) raster files (.t
 
 **Features:**
 - 📂 Upload raster files for two different years
-- 🎯 Analyze all transition classes
-- 🗺️ Visualize transition map with Dynamic World class names (both FROM ➔ TO)
+- 🎯 Analyze and visualize land cover for Year 1, Year 2
+- 🗺️ Visualize transition map with Dynamic World class names (FROM ➔ TO)
 - 📋 View and download change summary table
 - 📥 Download transition raster
 """)
@@ -48,6 +48,87 @@ class_color_mapping = {
 uploaded_file_1 = st.file_uploader("Upload TIFF file for Year 1", type=["tif", "tiff"])
 uploaded_file_2 = st.file_uploader("Upload TIFF file for Year 2", type=["tif", "tiff"])
 
+# Define function to plot LULC or Transition map
+def plot_map(image_array, title, transform, crs, class_label_mapping, class_color_mapping, is_transition=False):
+    nrows, ncols = image_array.shape
+    cols, rows = np.meshgrid(np.arange(ncols), np.arange(nrows))
+    xs, ys = rasterio.transform.xy(transform, rows, cols, offset='center')
+    xs = np.array(xs)
+    ys = np.array(ys)
+
+    transformer = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+    x_deg, y_deg = transformer.transform(xs, ys)
+
+    fig = plt.figure(figsize=(14, 14))
+    gs = fig.add_gridspec(2, 1, height_ratios=[4, 1])
+
+    ax = fig.add_subplot(gs[0, 0])
+
+    if is_transition:
+        # Transition Map
+        transitions_unique = np.unique(image_array[~np.isnan(image_array)]).astype(int)
+        transition_code_to_index = {code: idx for idx, code in enumerate(transitions_unique)}
+        transition_mapped = np.copy(image_array)
+        for code, idx in transition_code_to_index.items():
+            transition_mapped[image_array == code] = idx
+
+        # Colors and labels
+        colors = []
+        labels = []
+        for code in transitions_unique:
+            code_str = str(code)
+            if len(code_str) <= 2:
+                from_class = 0
+                to_class = int(code_str)
+            else:
+                from_class = int(code_str[:-2])
+                to_class = int(code_str[-2:])
+
+            color = class_color_mapping.get(to_class, '#d3d3d3')
+            colors.append(color)
+
+            from_label = class_label_mapping.get(from_class, 'Unknown')
+            to_label = class_label_mapping.get(to_class, 'Unknown')
+            labels.append(f"{from_label} ➔ {to_label}")
+
+        cmap = plt.matplotlib.colors.ListedColormap(colors)
+        ax.imshow(transition_mapped, cmap=cmap, interpolation='nearest')
+
+    else:
+        # LULC Map
+        cmap = plt.matplotlib.colors.ListedColormap([class_color_mapping.get(i, '#d3d3d3') for i in range(8)])
+        ax.imshow(image_array, cmap=cmap, interpolation='nearest')
+        labels = [class_label_mapping[i] for i in range(8)]
+        colors = [class_color_mapping[i] for i in range(8)]
+
+    ax.set_title(title, fontsize=16)
+
+    # Axis settings
+    ax.set_xticks(np.linspace(0, ncols-1, num=6))
+    ax.set_xticklabels(["{:.2f}".format(val) for val in np.linspace(np.min(x_deg), np.max(x_deg), num=6)])
+    ax.set_yticks(np.linspace(0, nrows-1, num=6))
+    ax.set_yticklabels(["{:.2f}".format(val) for val in np.linspace(np.max(y_deg), np.min(y_deg), num=6)])
+    ax.set_xlabel('Longitude (°)', fontsize=12)
+    ax.set_ylabel('Latitude (°)', fontsize=12)
+    ax.grid(which='both', color='grey', linestyle='--', linewidth=0.5)
+    ax.minorticks_on()
+
+    # North Arrow
+    ax.annotate('N', xy=(0.97, 0.98), xycoords='axes fraction',
+                fontsize=16, fontweight='bold', ha='center')
+    ax.annotate('↑', xy=(0.97, 0.94), xycoords='axes fraction',
+                fontsize=20, ha='center')
+
+    # Legend axis
+    ax_leg = fig.add_subplot(gs[1, 0])
+    ax_leg.axis('off')
+    patches = [mpatches.Patch(color=color, label=label) for color, label in zip(colors, labels)]
+    ax_leg.legend(handles=patches, loc='center', fancybox=True, shadow=True, ncol=4, title="Classes")
+
+    plt.tight_layout()
+    st.pyplot(fig)
+
+# Process after both uploads
 if uploaded_file_1 and uploaded_file_2:
     try:
         with rasterio.open(uploaded_file_1) as src1:
@@ -67,6 +148,7 @@ if uploaded_file_1 and uploaded_file_2:
         if land_cover_1.shape != land_cover_2.shape:
             st.error('❌ Error: Uploaded TIFF files do not match in shape or resolution.')
         else:
+            # Apply valid mask if needed
             if nodata1 is None:
                 nodata1 = 0
             if nodata2 is None:
@@ -80,89 +162,17 @@ if uploaded_file_1 and uploaded_file_2:
             transition_map = land_cover_1_valid * 100 + land_cover_2_valid
             transition_map = np.where(np.isnan(transition_map), np.nan, transition_map)
 
-            transitions_unique = np.unique(transition_map[~np.isnan(transition_map)]).astype(int)
-            st.success(f'✅ Unique transitions detected: {len(transitions_unique)}')
+            st.subheader('🗺️ Year 1 LULC Map')
+            plot_map(land_cover_1_valid, 'Year 1 LULC Map', transform1, crs1,
+                     class_label_mapping, class_color_mapping, is_transition=False)
 
-            transition_code_to_index = {code: idx for idx, code in enumerate(transitions_unique)}
-            index_to_transition_code = {idx: code for idx, code in enumerate(transitions_unique)}
+            st.subheader('🗺️ Year 2 LULC Map')
+            plot_map(land_cover_2_valid, 'Year 2 LULC Map', transform2, crs2,
+                     class_label_mapping, class_color_mapping, is_transition=False)
 
-            transition_mapped = np.copy(transition_map)
-            for code, idx in transition_code_to_index.items():
-                transition_mapped[transition_map == code] = idx
-
-            # --- Visualization ---
-            st.subheader('🗺️ Change Transition Map')
-
-            # Create a custom colormap and labels
-            colors = []
-            labels = []
-
-            for code in transitions_unique:
-                code_str = str(code)
-                if len(code_str) <= 2:
-                    from_class = 0
-                    to_class = int(code_str)
-                else:
-                    from_class = int(code_str[:-2])
-                    to_class = int(code_str[-2:])
-
-                color = class_color_mapping.get(to_class, '#d3d3d3') # fallback grey
-                colors.append(color)
-
-                from_label = class_label_mapping.get(from_class, 'Unknown')
-                to_label = class_label_mapping.get(to_class, 'Unknown')
-                labels.append(f"{from_label} ➔ {to_label}")
-
-            cmap = plt.matplotlib.colors.ListedColormap(colors)
-
-            # Create figure with two axes: map and legend
-            fig = plt.figure(figsize=(14, 14))
-            gs = fig.add_gridspec(2, 1, height_ratios=[4, 1])
-
-            ax = fig.add_subplot(gs[0, 0])  # Top for map
-
-            img = ax.imshow(transition_mapped, cmap=cmap, interpolation='nearest')
-
-            ax.set_title('Transition Map (From ➔ To)', fontsize=16)
-
-            # Generate real-world coordinates
-            nrows, ncols = transition_mapped.shape
-            cols, rows = np.meshgrid(np.arange(ncols), np.arange(nrows))
-            xs, ys = rasterio.transform.xy(transform1, rows, cols, offset='center')
-            xs = np.array(xs)
-            ys = np.array(ys)
-
-            transformer = Transformer.from_crs(crs1, "EPSG:4326", always_xy=True)
-            x_deg, y_deg = transformer.transform(xs, ys)
-
-            ax.set_xticks(np.linspace(0, ncols-1, num=6))
-            ax.set_xticklabels(["{:.2f}".format(val) for val in np.linspace(np.min(x_deg), np.max(x_deg), num=6)])
-
-            ax.set_yticks(np.linspace(0, nrows-1, num=6))
-            ax.set_yticklabels(["{:.2f}".format(val) for val in np.linspace(np.max(y_deg), np.min(y_deg), num=6)])
-
-            ax.set_xlabel('Longitude (°)', fontsize=12)
-            ax.set_ylabel('Latitude (°)', fontsize=12)
-
-            ax.grid(which='both', color='grey', linestyle='--', linewidth=0.5)
-            ax.minorticks_on()
-
-            # --- Fancy North Arrow ---
-            ax.annotate('N', xy=(0.97, 0.98), xycoords='axes fraction',
-                        fontsize=16, fontweight='bold', ha='center')
-            ax.annotate('↑', xy=(0.97, 0.94), xycoords='axes fraction',
-                        fontsize=20, ha='center')
-
-            # --- Create Legend separately ---
-            ax_leg = fig.add_subplot(gs[1, 0])  # Bottom for legend
-            ax_leg.axis('off')
-
-            patches = [mpatches.Patch(color=color, label=label) for color, label in zip(colors, labels)]
-            ax_leg.legend(handles=patches, loc='center', fancybox=True, shadow=True, ncol=4, title="Transitions")
-
-            plt.tight_layout()
-
-            st.pyplot(fig)
+            st.subheader('🗺️ Transition Map (From ➔ To)')
+            plot_map(transition_map, 'Transition Map (From ➔ To)', transform1, crs1,
+                     class_label_mapping, class_color_mapping, is_transition=True)
 
             # --- Change Summary Table ---
             st.subheader('📋 Change Summary Table')
