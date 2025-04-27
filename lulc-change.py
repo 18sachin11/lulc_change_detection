@@ -111,29 +111,41 @@ if uploaded_file_1 and uploaded_file_2:
         if lc1.shape != lc2.shape:
             st.error('❌ Error: Files have different dimensions!')
         else:
+            # Handle nodata
             lc1 = np.where(lc1 <= -9999, np.nan, lc1)
             lc2 = np.where(lc2 <= -9999, np.nan, lc2)
             valid_mask = (~np.isnan(lc1)) & (~np.isnan(lc2))
 
             # Plot Year1
-            existing_classes_lc1 = sorted(list(set(np.unique(lc1[valid_mask]).astype(int))))
+            existing_classes_lc1 = sorted(list(set(np.unique(lc1[~np.isnan(lc1)]).astype(int))))
             st.subheader(f'🗺️ LULC Map for {year1}')
             plot_map(lc1, f'LULC Map for {year1}', transform1, crs1, existing_classes_lc1)
 
             # Plot Year2
-            existing_classes_lc2 = sorted(list(set(np.unique(lc2[valid_mask]).astype(int))))
+            existing_classes_lc2 = sorted(list(set(np.unique(lc2[~np.isnan(lc2)]).astype(int))))
             st.subheader(f'🗺️ LULC Map for {year2}')
             plot_map(lc2, f'LULC Map for {year2}', transform2, crs2, existing_classes_lc2)
 
-            # Pixel Count Table
+            # 📋 Pixel Count Table
+            st.subheader('📋 Pixel Count Table (Year 1 vs Year 2)')
             pixel_count_table = pd.DataFrame({
                 'Class': list(range(9)),
                 'Class Name': [class_label_mapping[i] for i in range(9)],
-                f'Pixels ({year1})': [np.sum(lc1[valid_mask] == i) for i in range(9)],
-                f'Pixels ({year2})': [np.sum(lc2[valid_mask] == i) for i in range(9)]
+                f'Pixels ({year1})': [np.nansum(lc1 == i) for i in range(9)],
+                f'Pixels ({year2})': [np.nansum(lc2 == i) for i in range(9)]
             })
-            st.subheader('📋 Pixel Count Comparison Table')
             st.dataframe(pixel_count_table)
+
+            # 📋 Transition Matrix Table
+            st.subheader('📋 Transition Matrix Table')
+            transition_matrix = np.zeros((9, 9), dtype=int)
+            for i in range(9):
+                for j in range(9):
+                    transition_matrix[i, j] = np.nansum((lc1 == i) & (lc2 == j))
+            transition_df = pd.DataFrame(transition_matrix,
+                                         index=[f'From {class_label_mapping[i]}' for i in range(9)],
+                                         columns=[f'To {class_label_mapping[i]}' for i in range(9)])
+            st.dataframe(transition_df)
 
             # Transition Map
             transition_map = lc1 * 100 + lc2
@@ -161,7 +173,7 @@ if uploaded_file_1 and uploaded_file_2:
             plot_map(transition_map, f'Transition Map ({year1} ➔ {year2})', transform1, crs1,
                      classes_present=[], is_transition=True, transition_info=transition_info)
 
-            # Download Transition Map
+            # 📥 Download Transition Map
             st.subheader('📥 Download Transition Map')
             buffer_transition = io.BytesIO()
             with rasterio.open(
@@ -181,23 +193,15 @@ if uploaded_file_1 and uploaded_file_2:
                 mime='image/tiff'
             )
 
-            # Future LULC Prediction
+            # 📈 Future LULC Prediction
             st.subheader('📈 Future Land Use Prediction (Markov Chain)')
             future_year = st.number_input(f'Enter future year after {year2}:', min_value=int(year2)+1, step=1)
             time_gap = int(year2) - int(year1)
             future_steps = (future_year - int(year2)) // time_gap
 
             if future_steps > 0:
-                change_matrix = np.zeros((9, 9))
-                for from_class in range(9):
-                    from_mask = (lc1 == from_class)
-                    total_from = np.sum(from_mask)
-                    if total_from > 0:
-                        for to_class in range(9):
-                            to_count = np.sum((lc2 == to_class) & from_mask)
-                            change_matrix[from_class, to_class] = to_count / total_from
-
-                prob_matrix = np.linalg.matrix_power(change_matrix, future_steps)
+                prob_matrix = transition_matrix / np.maximum(transition_matrix.sum(axis=1, keepdims=True), 1)
+                prob_matrix = np.linalg.matrix_power(prob_matrix, future_steps)
 
                 predicted_lulc = np.full_like(lc2, np.nan)
                 for i in range(predicted_lulc.shape[0]):
@@ -210,7 +214,7 @@ if uploaded_file_1 and uploaded_file_2:
                 plot_map(predicted_lulc, f'Predicted LULC Map for {future_year}', transform2, crs2,
                          classes_present=list(range(9)))
 
-                # Download Predicted LULC
+                # 📥 Download Predicted LULC
                 st.subheader('📥 Download Predicted LULC Map')
                 buffer_pred = io.BytesIO()
                 with rasterio.open(
