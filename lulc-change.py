@@ -111,7 +111,6 @@ if uploaded_file_1 and uploaded_file_2:
         if lc1.shape != lc2.shape:
             st.error('❌ Error: Files have different dimensions!')
         else:
-            # Handle nodata
             lc1 = np.where(lc1 <= -9999, np.nan, lc1)
             lc2 = np.where(lc2 <= -9999, np.nan, lc2)
             valid_mask = (~np.isnan(lc1)) & (~np.isnan(lc2))
@@ -174,7 +173,6 @@ if uploaded_file_1 and uploaded_file_2:
                      classes_present=[], is_transition=True, transition_info=transition_info)
 
             # 📥 Download Transition Map
-            st.subheader('📥 Download Transition Map')
             buffer_transition = io.BytesIO()
             with rasterio.open(
                 buffer_transition, 'w', driver='GTiff',
@@ -187,7 +185,7 @@ if uploaded_file_1 and uploaded_file_2:
                 dst.write(transition_map.astype('float32'), 1)
             buffer_transition.seek(0)
             st.download_button(
-                label=f"Download Transition Map ({year1} to {year2}) (.tif)",
+                label=f"Download Transition Map ({year1} ➔ {year2}) (.tif)",
                 data=buffer_transition,
                 file_name=f'transition_map_{year1}_{year2}.tif',
                 mime='image/tiff'
@@ -214,8 +212,16 @@ if uploaded_file_1 and uploaded_file_2:
                 plot_map(predicted_lulc, f'Predicted LULC Map for {future_year}', transform2, crs2,
                          classes_present=list(range(9)))
 
+                # 📋 Predicted LULC Pixel Count Table
+                st.subheader('📋 Predicted LULC Pixel Count Table')
+                predicted_pixel_table = pd.DataFrame({
+                    'Class': list(range(9)),
+                    'Class Name': [class_label_mapping[i] for i in range(9)],
+                    f'Pixels ({future_year})': [np.nansum(predicted_lulc == i) for i in range(9)]
+                })
+                st.dataframe(predicted_pixel_table)
+
                 # 📥 Download Predicted LULC
-                st.subheader('📥 Download Predicted LULC Map')
                 buffer_pred = io.BytesIO()
                 with rasterio.open(
                     buffer_pred, 'w', driver='GTiff',
