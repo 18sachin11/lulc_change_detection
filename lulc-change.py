@@ -13,13 +13,12 @@ import matplotlib.cm as cm
 # Title
 st.title('🌎 Land Use Land Cover (LULC) Change Detection and Future Prediction App')
 
-# 9-Class Labels and Colors
+# Class Labels and Colors (0-8)
 class_label_mapping = {
     0: 'Water', 1: 'Trees', 2: 'Grass', 3: 'Flooded Vegetation',
     4: 'Crops', 5: 'Shrub and Scrub', 6: 'Built Area', 7: 'Bare Ground',
     8: 'Snow and Ice'
 }
-
 class_color_mapping = {
     0: '#419bdf', 1: '#397d49', 2: '#88b053', 3: '#7a87c6',
     4: '#e49635', 5: '#dfc35a', 6: '#c4281b', 7: '#a59b8f',
@@ -112,7 +111,6 @@ if uploaded_file_1 and uploaded_file_2:
         if lc1.shape != lc2.shape:
             st.error('❌ Error: Files have different dimensions!')
         else:
-            # Mask invalid values
             lc1 = np.where(lc1 <= -9999, np.nan, lc1)
             lc2 = np.where(lc2 <= -9999, np.nan, lc2)
             valid_mask = (~np.isnan(lc1)) & (~np.isnan(lc2))
@@ -126,6 +124,16 @@ if uploaded_file_1 and uploaded_file_2:
             existing_classes_lc2 = sorted(list(set(np.unique(lc2[valid_mask]).astype(int))))
             st.subheader(f'🗺️ LULC Map for {year2}')
             plot_map(lc2, f'LULC Map for {year2}', transform2, crs2, existing_classes_lc2)
+
+            # Pixel Count Table
+            pixel_count_table = pd.DataFrame({
+                'Class': list(range(9)),
+                'Class Name': [class_label_mapping[i] for i in range(9)],
+                f'Pixels ({year1})': [np.sum(lc1[valid_mask] == i) for i in range(9)],
+                f'Pixels ({year2})': [np.sum(lc2[valid_mask] == i) for i in range(9)]
+            })
+            st.subheader('📋 Pixel Count Comparison Table')
+            st.dataframe(pixel_count_table)
 
             # Transition Map
             transition_map = lc1 * 100 + lc2
@@ -153,7 +161,7 @@ if uploaded_file_1 and uploaded_file_2:
             plot_map(transition_map, f'Transition Map ({year1} ➔ {year2})', transform1, crs1,
                      classes_present=[], is_transition=True, transition_info=transition_info)
 
-            # 📥 Download Transition Map
+            # Download Transition Map
             st.subheader('📥 Download Transition Map')
             buffer_transition = io.BytesIO()
             with rasterio.open(
@@ -173,7 +181,7 @@ if uploaded_file_1 and uploaded_file_2:
                 mime='image/tiff'
             )
 
-            # 📈 Future LULC Prediction
+            # Future LULC Prediction
             st.subheader('📈 Future Land Use Prediction (Markov Chain)')
             future_year = st.number_input(f'Enter future year after {year2}:', min_value=int(year2)+1, step=1)
             time_gap = int(year2) - int(year1)
@@ -202,7 +210,7 @@ if uploaded_file_1 and uploaded_file_2:
                 plot_map(predicted_lulc, f'Predicted LULC Map for {future_year}', transform2, crs2,
                          classes_present=list(range(9)))
 
-                # 📥 Download Predicted LULC
+                # Download Predicted LULC
                 st.subheader('📥 Download Predicted LULC Map')
                 buffer_pred = io.BytesIO()
                 with rasterio.open(
