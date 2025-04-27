@@ -101,6 +101,10 @@ if uploaded_file_1 and uploaded_file_2:
         if lc1.shape != lc2.shape:
             st.error('❌ Error: Files have different dimensions!')
         else:
+            # Nodata handling: Replace very negative values (e.g., -2147483648) with np.nan
+            lc1 = np.where(lc1 <= -9999, np.nan, lc1)
+            lc2 = np.where(lc2 <= -9999, np.nan, lc2)
+
             valid_mask = (~np.isnan(lc1)) & (~np.isnan(lc2))
 
             # Find existing classes
@@ -119,7 +123,7 @@ if uploaded_file_1 and uploaded_file_2:
             transition_map = lc1 * 100 + lc2
             transitions_unique = np.unique(transition_map[valid_mask]).astype(int)
 
-            # Handle small transition codes correctly
+            # Transition remapping
             transition_mapped = np.copy(transition_map)
             trans_idx = {code: idx for idx, code in enumerate(transitions_unique)}
             for code, idx in trans_idx.items():
