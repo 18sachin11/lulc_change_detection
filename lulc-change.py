@@ -6,6 +6,7 @@ import matplotlib.patches as mpatches
 import pandas as pd
 import io
 from pyproj import Transformer
+import matplotlib.colors as mcolors
 import matplotlib.cm as cm
 
 # App Title
@@ -33,8 +34,17 @@ year2 = st.text_input("Enter year for second TIFF (e.g., 2020):", value="Year 2"
 uploaded_file_1 = st.file_uploader(f"Upload TIFF for {year1}", type=["tif", "tiff"])
 uploaded_file_2 = st.file_uploader(f"Upload TIFF for {year2}", type=["tif", "tiff"])
 
+# Function to create a masked color image
+def create_color_mask(image_array, classes_present):
+    color_image = np.zeros((image_array.shape[0], image_array.shape[1], 3), dtype=np.float32)
+    for cls in classes_present:
+        mask = (image_array == cls)
+        rgb = mcolors.to_rgb(class_color_mapping[cls])
+        color_image[mask] = rgb
+    return color_image
+
 # Plotting function
-def plot_map(image_array, title, transform, crs, existing_classes, is_transition=False, transition_info=None):
+def plot_map(image_array, title, transform, crs, classes_present, is_transition=False, transition_info=None):
     nrows, ncols = image_array.shape
     cols, rows = np.meshgrid(np.arange(ncols), np.arange(nrows))
     xs, ys = rasterio.transform.xy(transform, rows, cols, offset='center')
@@ -48,16 +58,15 @@ def plot_map(image_array, title, transform, crs, existing_classes, is_transition
     ax = fig.add_subplot(gs[0, 0])
 
     if is_transition and transition_info:
-        cmap = plt.matplotlib.colors.ListedColormap(transition_info['colors'])
+        cmap = mcolors.ListedColormap(transition_info['colors'])
         ax.imshow(transition_info['mapped_array'], cmap=cmap, interpolation='nearest')
         labels = transition_info['labels']
         colors = transition_info['colors']
     else:
-        color_list = [class_color_mapping[c] for c in existing_classes]
-        cmap = plt.matplotlib.colors.ListedColormap(color_list)
-        ax.imshow(image_array, cmap=cmap, interpolation='nearest')
-        labels = [class_label_mapping[c] for c in existing_classes]
-        colors = color_list
+        color_image = create_color_mask(image_array, classes_present)
+        ax.imshow(color_image, interpolation='nearest')
+        labels = [class_label_mapping[c] for c in classes_present]
+        colors = [class_color_mapping[c] for c in classes_present]
 
     ax.set_title(title, fontsize=16)
     ax.set_xticks(np.linspace(0, ncols-1, num=6))
@@ -125,13 +134,11 @@ if uploaded_file_1 and uploaded_file_2:
             transition_map = lc1 * 100 + lc2
             transitions_unique = np.unique(transition_map[valid_mask]).astype(int)
 
-            # Transition remapping
             transition_mapped = np.copy(transition_map)
             trans_idx = {code: idx for idx, code in enumerate(transitions_unique)}
             for code, idx in trans_idx.items():
                 transition_mapped[transition_map == code] = idx
 
-            # Assign unique colors for transitions
             cmap_transitions = cm.get_cmap('tab20', len(transitions_unique))
             transition_colors = [cmap_transitions(i) for i in range(len(transitions_unique))]
 
@@ -147,7 +154,7 @@ if uploaded_file_1 and uploaded_file_2:
             st.subheader(f'🗺️ Transition Map ({year1} ➔ {year2})')
             transition_info = {'mapped_array': transition_mapped, 'colors': transition_colors, 'labels': transition_labels}
             plot_map(transition_map, f'Transition Map ({year1} ➔ {year2})', transform1, crs1,
-                     existing_classes=[], is_transition=True, transition_info=transition_info)
+                     classes_present=[], is_transition=True, transition_info=transition_info)
 
             # Change Summary Table
             st.subheader('📋 Change Summary Table')
@@ -188,7 +195,7 @@ if uploaded_file_1 and uploaded_file_2:
 
                 st.subheader(f'🗺️ Predicted LULC Map for {future_year}')
                 plot_map(predicted_lulc, f'Predicted LULC Map for {future_year}', transform2, crs2,
-                         existing_classes=list(range(9)))
+                         classes_present=list(range(9)))
 
                 # Download Predicted Raster
                 buffer_pred = io.BytesIO()
