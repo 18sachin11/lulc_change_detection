@@ -111,8 +111,10 @@ if uploaded_file_1 and uploaded_file_2:
         if lc1.shape != lc2.shape:
             st.error('❌ Error: Files have different dimensions!')
         else:
-            lc1 = np.where(lc1 <= -9999, np.nan, lc1)
-            lc2 = np.where(lc2 <= -9999, np.nan, lc2)
+            # Mask both negative and huge positive invalid values
+            lc1 = np.where((lc1 <= -9999) | (lc1 >= 2147483647), np.nan, lc1)
+            lc2 = np.where((lc2 <= -9999) | (lc2 >= 2147483647), np.nan, lc2)
+
             valid_mask = (~np.isnan(lc1)) & (~np.isnan(lc2))
 
             # Plot Year1
