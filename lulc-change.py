@@ -8,18 +8,20 @@ import io
 from pyproj import Transformer
 import matplotlib.cm as cm
 
-# Title
+# App Title
 st.title('🌎 Land Use Land Cover (LULC) Change Detection and Future Prediction App')
 
-# LULC Class Labels and Colors (Dynamic World)
+# Updated 9-Class LULC labels and colors
 class_label_mapping = {
     0: 'Water', 1: 'Trees', 2: 'Grass', 3: 'Flooded Vegetation',
-    4: 'Crops', 5: 'Shrub and Scrub', 6: 'Built Area', 7: 'Bare Ground'
+    4: 'Crops', 5: 'Shrub and Scrub', 6: 'Built Area', 7: 'Bare Ground',
+    8: 'Snow and Ice'
 }
 
 class_color_mapping = {
     0: '#419bdf', 1: '#397d49', 2: '#88b053', 3: '#7a87c6',
-    4: '#e49635', 5: '#dfc35a', 6: '#c4281b', 7: '#a59b8f'
+    4: '#e49635', 5: '#dfc35a', 6: '#c4281b', 7: '#a59b8f',
+    8: '#b39fe1'
 }
 
 # User Inputs
@@ -101,13 +103,13 @@ if uploaded_file_1 and uploaded_file_2:
         if lc1.shape != lc2.shape:
             st.error('❌ Error: Files have different dimensions!')
         else:
-            # Nodata handling: Replace very negative values (e.g., -2147483648) with np.nan
+            # Nodata handling
             lc1 = np.where(lc1 <= -9999, np.nan, lc1)
             lc2 = np.where(lc2 <= -9999, np.nan, lc2)
 
             valid_mask = (~np.isnan(lc1)) & (~np.isnan(lc2))
 
-            # Find existing classes
+            # Find existing classes dynamically
             existing_classes_lc1 = sorted(list(set(np.unique(lc1[valid_mask]).astype(int))))
             existing_classes_lc2 = sorted(list(set(np.unique(lc2[valid_mask]).astype(int))))
 
@@ -129,13 +131,13 @@ if uploaded_file_1 and uploaded_file_2:
             for code, idx in trans_idx.items():
                 transition_mapped[transition_map == code] = idx
 
-            # Assign new colors
+            # Assign unique colors for transitions
             cmap_transitions = cm.get_cmap('tab20', len(transitions_unique))
             transition_colors = [cmap_transitions(i) for i in range(len(transitions_unique))]
 
             transition_labels = []
             for code in transitions_unique:
-                code_str = str(code).zfill(4)  # Pad zeros if needed
+                code_str = str(code).zfill(4)
                 from_class = int(code_str[:-2])
                 to_class = int(code_str[-2:])
                 from_label = class_label_mapping.get(from_class, 'Unknown')
@@ -166,12 +168,12 @@ if uploaded_file_1 and uploaded_file_2:
             if future_steps <= 0:
                 st.warning('⚠️ Future year must be after current!')
             else:
-                change_matrix = np.zeros((8, 8))
-                for from_class in range(8):
+                change_matrix = np.zeros((9, 9))
+                for from_class in range(9):
                     from_mask = (lc1 == from_class)
                     total_from = np.sum(from_mask)
                     if total_from > 0:
-                        for to_class in range(8):
+                        for to_class in range(9):
                             to_count = np.sum((lc2 == to_class) & from_mask)
                             change_matrix[from_class, to_class] = to_count / total_from
 
@@ -186,7 +188,7 @@ if uploaded_file_1 and uploaded_file_2:
 
                 st.subheader(f'🗺️ Predicted LULC Map for {future_year}')
                 plot_map(predicted_lulc, f'Predicted LULC Map for {future_year}', transform2, crs2,
-                         existing_classes=list(range(8)))
+                         existing_classes=list(range(9)))
 
                 # Download Predicted Raster
                 buffer_pred = io.BytesIO()
